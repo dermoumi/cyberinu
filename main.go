@@ -2,9 +2,11 @@ package main
 
 import (
     "os"
-    "image"
     "time"
+    "bytes"
+    "image"
     "image/color"
+    "image/png"
     "io/ioutil"
 
     "github.com/golang/freetype/truetype"
@@ -12,15 +14,9 @@ import (
     "github.com/llgcode/draw2d/draw2dimg"
 )
 
-func main() {
-    // Load and register the background image
-    infile, err := os.Open("inu.png")
-    if err != nil {
-        panic(err)
-    }
-    defer infile.Close()
-
-    inuImage, _, err := image.Decode(infile)
+func makeImage() *image.RGBA {
+// Load and register the background image
+    inuImage, err := draw2dimg.LoadFromPngFile("inu.png")
     if err != nil {
         panic(err)
     }
@@ -46,14 +42,12 @@ func main() {
     nowStr := now.Format("15:04")
 
     // Initialize the graphic context on an RGBA image
-    dest := image.NewRGBA(inuImage.Bounds())
-    gc := draw2dimg.NewGraphicContext(dest)
+    output := image.NewRGBA(image.Rect(0, 0, 512, 512))
+    gc := draw2dimg.NewGraphicContext(output)
 
     // Set some properties
-    gc.SetFillColor(color.RGBA{0x5d, 0xd8, 0xea, 0xff})
-    // gc.SetFillColor(color.RGBA{0xff, 0xcc, 0x00, 0xff})
     gc.SetFontData(fontData)
-    gc.SetFontSize(32)
+    gc.SetFontSize(28)
 
     // Draw the background image first
     gc.DrawImage(inuImage)
@@ -62,12 +56,29 @@ func main() {
     gc.Save()
     gc.ComposeMatrixTransform(draw2d.Matrix{
         1.0, -0.02,
-        -0.10, 1.0,
-        412.0, 272.0,
+        -0.14, 1.0,
+        301.0, 190.0,
     })
+    gc.SetFillColor(color.RGBA{0x5d, 0xd8, 0xea, 0xff})
     gc.FillString(nowStr)
     gc.Restore()
 
-    // Save to file
-    draw2dimg.SaveToPngFile("out.png", dest)
+    return output
+}
+
+func main() {
+    image := makeImage()
+
+    buffer := bytes.NewBuffer(make([]byte, 0))
+    err := png.Encode(buffer, image)
+    if err != nil {
+        panic(err)
+    }
+
+    file, err := os.Create("out.png")
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
+    buffer.WriteTo(file)
 }
