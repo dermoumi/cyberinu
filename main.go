@@ -23,6 +23,8 @@ import (
     "github.com/llgcode/draw2d/draw2dimg"
 )
 
+const ASSETS_DIR = "assets"
+
 type AppConfig struct{
     SlackToken          string
     UpdateInterval      time.Duration
@@ -50,6 +52,7 @@ func (err Non200StatusCode) Error() string {
 
 type Model struct{
     Filename  string
+    Font      string
     Color     color.RGBA
     Transform draw2d.Matrix
 }
@@ -115,6 +118,11 @@ func loadModels(filename string) ([]Model, error) {
             return nil, errInvalidFormat
         }
 
+        font, ok := modelMap["font"].(string)
+        if !ok {
+            return nil, errInvalidFormat
+        }
+
         colorStr, ok := modelMap["color"].(string)
         if !ok {
             return nil, errInvalidFormat
@@ -139,6 +147,7 @@ func loadModels(filename string) ([]Model, error) {
 
         models[i] = Model{
             Filename: filename,
+            Font: font,
             Color: color,
             Transform: draw2d.Matrix(transform),
         }
@@ -149,13 +158,13 @@ func loadModels(filename string) ([]Model, error) {
 
 func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
 // Load and register the background image
-    inuImage, err := draw2dimg.LoadFromPngFile(model.Filename)
+    inuImage, err := draw2dimg.LoadFromPngFile(path.Join(ASSETS_DIR, model.Filename))
     if err != nil {
         return nil, err
     }
 
     // Load and register the font
-    fontBytes, err := ioutil.ReadFile("ocr.ttf")
+    fontBytes, err := ioutil.ReadFile(path.Join(ASSETS_DIR, model.Font))
     if err != nil {
         return nil, err
     }

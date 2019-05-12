@@ -1,6 +1,7 @@
 [
     {
         "filename": "inu.png",
+        "font": "ocr.ttf",
         "color": "#5dd8ea",
         "transform": [1.0, -0.02, -0.14, 1.0, 301.0, 190.0]
     }
