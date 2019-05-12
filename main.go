@@ -6,12 +6,16 @@ import (
     "log"
     "time"
     "flag"
+    "path"
     "bytes"
+    "errors"
     "image"
-    "image/color"
     "image/png"
+    "image/color"
+    "math/rand"
     "io/ioutil"
     "net/http"
+    "encoding/json"
     "mime/multipart"
 
     "github.com/golang/freetype/truetype"
@@ -44,9 +48,108 @@ func (err Non200StatusCode) Error() string {
     return fmt.Sprintf("%v", err)
 }
 
-func makeImage(timeStr string) (*image.RGBA, error) {
+type Model struct{
+    Filename  string
+    Color     color.RGBA
+    Transform draw2d.Matrix
+}
+
+// https://stackoverflow.com/questions/54197913/parse-hex-string-to-image-color
+var errInvalidFormat = errors.New("invalid format")
+func parseHexColorFast(s string) (c color.RGBA, err error) {
+    c.A = 0xff
+
+    if s[0] != '#' {
+        return c, errInvalidFormat
+    }
+
+    hexToByte := func(b byte) byte {
+        switch {
+        case b >= '0' && b <= '9':
+            return b - '0'
+        case b >= 'a' && b <= 'f':
+            return b - 'a' + 10
+        case b >= 'A' && b <= 'F':
+            return b - 'A' + 10
+        }
+        err = errInvalidFormat
+        return 0
+    }
+
+    switch len(s) {
+    case 7:
+        c.R = hexToByte(s[1])<<4 + hexToByte(s[2])
+        c.G = hexToByte(s[3])<<4 + hexToByte(s[4])
+        c.B = hexToByte(s[5])<<4 + hexToByte(s[6])
+    case 4:
+        c.R = hexToByte(s[1]) * 17
+        c.G = hexToByte(s[2]) * 17
+        c.B = hexToByte(s[3]) * 17
+    default:
+        err = errInvalidFormat
+    }
+    return
+}
+
+func loadModels(filename string) ([]Model, error) {
+    jsonBytes, err := ioutil.ReadFile(filename)
+    if err != nil {
+        return nil, err
+    }
+
+    var loadedData []interface{}
+    err = json.Unmarshal(jsonBytes, &loadedData)
+    if err != nil {
+        return nil, err
+    }
+
+    models := make([]Model, len(loadedData))
+    for i, modelMapInterface := range loadedData {
+        modelMap, ok := modelMapInterface.(map[string]interface{})
+        if !ok {
+            return nil, errInvalidFormat
+        }
+
+        filename, ok := modelMap["filename"].(string)
+        if !ok {
+            return nil, errInvalidFormat
+        }
+
+        colorStr, ok := modelMap["color"].(string)
+        if !ok {
+            return nil, errInvalidFormat
+        }
+        color, err := parseHexColorFast(colorStr)
+        if err != nil {
+            return nil, err
+        }
+
+        transformInterface, ok := modelMap["transform"].([]interface{})
+        if !ok {
+            return nil, errInvalidFormat
+        }
+
+        var transform [6]float64
+        for j, value := range transformInterface {
+            transform[j], ok = value.(float64)
+            if !ok {
+                return nil, errInvalidFormat
+            }
+        }
+
+        models[i] = Model{
+            Filename: filename,
+            Color: color,
+            Transform: draw2d.Matrix(transform),
+        }
+    }
+
+    return models, nil
+}
+
+func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
 // Load and register the background image
-    inuImage, err := draw2dimg.LoadFromPngFile("inu.png")
+    inuImage, err := draw2dimg.LoadFromPngFile(model.Filename)
     if err != nil {
         return nil, err
     }
@@ -80,12 +183,8 @@ func makeImage(timeStr string) (*image.RGBA, error) {
 
     // Write some text
     gc.Save()
-    gc.ComposeMatrixTransform(draw2d.Matrix{
-        1.0, -0.02,
-        -0.14, 1.0,
-        301.0, 190.0,
-    })
-    gc.SetFillColor(color.RGBA{0x5d, 0xd8, 0xea, 0xff})
+    gc.ComposeMatrixTransform(model.Transform)
+    gc.SetFillColor(model.Color)
     gc.FillString(timeStr)
     gc.Restore()
 
@@ -161,8 +260,27 @@ func updateSlackPicture(config *AppConfig) error {
     }
     nowStr := now.Format("15:04")
 
+    // Select a model to use
+    models, err := loadModels("models.json")
+    if err != nil {
+        return err
+    }
+
+    // Select a random model if modelCount > 1
+    var model *Model
+    modelCount := len(models)
+    if modelCount == 0 {
+        // TODO: return error
+        return nil
+    } else if modelCount == 1 {
+        model = &models[0]
+    } else {
+        index := rand.Intn(modelCount - 1)
+        model = &models[index]
+    }
+
     // Generate an image of CyberInu with time on glasses
-    image, err := makeImage(nowStr)
+    image, err := makeImage(nowStr, model)
     if err != nil {
         return err
     }
