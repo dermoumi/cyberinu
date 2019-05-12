@@ -22,8 +22,7 @@ import (
 type AppConfig struct{
     SlackToken          string
     UpdateInterval      time.Duration
-    TimeOffset          time.Duration
-    TimeOffsetNegative  bool
+    SecondsOffset       int
 }
 
 type InvalidFlagValue struct{
@@ -154,6 +153,12 @@ func makeRequest(buffer *bytes.Buffer, token string) error {
 func updateSlackPicture(config *AppConfig) error {
     // Format current time
     now := time.Now()
+    if now.Second() > config.SecondsOffset {
+        oneMinute, err := time.ParseDuration("1m")
+        if err == nil {
+            now = now.Add(oneMinute)
+        }
+    }
     nowStr := now.Format("15:04")
 
     // Generate an image of CyberInu with time on glasses
@@ -183,28 +188,26 @@ func updateSlackPicture(config *AppConfig) error {
 }
 
 func parseFlags() (*AppConfig, error) {
-    // Setup flags
-    slackTokenPtr := flag.String("slack-token", "", "Slack token")
-
-    // Parse flags
-    flag.Parse()
-
-    // Create config
+    // Prepare default durations
     defaultUpdateInterval, err := time.ParseDuration("1m")
     if err != nil {
         return nil, err
     }
 
-    defaultTimeOffset, err := time.ParseDuration("30s")
-    if err != nil {
-        return nil, err
-    }
+    // Setup flags
+    slackTokenPtr := flag.String("slack-token", "", "Slack token")
+    updateIntervalPtr := flag.Duration("update-interval", defaultUpdateInterval, "Update interval")
+    secondsOffsetPtr := flag.Int("seconds-offset", 30,
+                                 "Seconds after which we generate picture for the next minute")
 
+    // Parse flags
+    flag.Parse()
+
+    // Create config
     config := AppConfig{
         *slackTokenPtr,
-        defaultUpdateInterval,
-        defaultTimeOffset,
-        false,
+        *updateIntervalPtr,
+        *secondsOffsetPtr,
     }
 
     // Add missing flags from env
