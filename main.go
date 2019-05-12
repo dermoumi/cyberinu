@@ -3,7 +3,9 @@ package main
 import (
     "os"
     "fmt"
+    "log"
     "time"
+    "flag"
     "bytes"
     "image"
     "image/color"
@@ -17,27 +19,47 @@ import (
     "github.com/llgcode/draw2d/draw2dimg"
 )
 
-type SlackTokenNotSet struct{}
-
-func (SlackTokenNotSet) Error() string {
-    return "Slack token not set"
+type AppConfig struct{
+    SlackToken          string
+    UpdateInterval      time.Duration
+    TimeOffset          time.Duration
+    TimeOffsetNegative  bool
 }
 
-func makeImage() *image.RGBA {
+type InvalidFlagValue struct{
+    Flag  string
+    Value string
+}
+
+func (err InvalidFlagValue) Error() string {
+    return fmt.Sprintf("Invalid value '%v' for '%s'", err.Value, err.Flag)
+}
+
+type Non200StatusCode struct {
+    StatusCode int
+    Headers    http.Header
+    Body       string
+}
+
+func (err Non200StatusCode) Error() string {
+    return fmt.Sprintf("%v", err)
+}
+
+func makeImage(timeStr string) (*image.RGBA, error) {
 // Load and register the background image
     inuImage, err := draw2dimg.LoadFromPngFile("inu.png")
     if err != nil {
-        panic(err)
+        return nil, err
     }
 
     // Load and register the font
     fontBytes, err := ioutil.ReadFile("ocr.ttf")
     if err != nil {
-        panic(err)
+        return nil, err
     }
     font, err := truetype.Parse(fontBytes)
     if err != nil {
-        panic(err)
+        return nil, err
     }
     fontData := draw2d.FontData{
         Name: "ocr",
@@ -45,10 +67,6 @@ func makeImage() *image.RGBA {
         Style: draw2d.FontStyleNormal,
     }
     draw2d.RegisterFont(fontData, font)
-
-    // Format current time
-    now := time.Now()
-    nowStr := now.Format("15:04")
 
     // Initialize the graphic context on an RGBA image
     output := image.NewRGBA(image.Rect(0, 0, 512, 512))
@@ -69,10 +87,10 @@ func makeImage() *image.RGBA {
         301.0, 190.0,
     })
     gc.SetFillColor(color.RGBA{0x5d, 0xd8, 0xea, 0xff})
-    gc.FillString(nowStr)
+    gc.FillString(timeStr)
     gc.Restore()
 
-    return output
+    return output, nil
 }
 
 func makeRequest(buffer *bytes.Buffer, token string) error {
@@ -112,62 +130,117 @@ func makeRequest(buffer *bytes.Buffer, token string) error {
     resp, err := client.Do(request)
     if err != nil {
         return err
-    } else {
-        var bodyContent []byte
-        resp.Body.Read(bodyContent)
-        resp.Body.Close()
-        fmt.Println(resp.StatusCode)
-        fmt.Println(resp.Header)
-        fmt.Println(bodyContent)
-        fmt.Println(resp.Request.ContentLength)
-        fmt.Println(resp.Request.Header)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != 200 {
+        var bodyString string
+        bodyBytes, err := ioutil.ReadAll(resp.Body)
+        if err != nil {
+            bodyString = "<UNABLE TO READ RESPONSE BODY>"
+        }
+        bodyString = string(bodyBytes)
+
+        return Non200StatusCode{
+            StatusCode: resp.StatusCode,
+            Headers: resp.Header,
+            Body: bodyString,
+        }
     }
 
     return nil
 }
 
-func updateSlackPicture() {
+func updateSlackPicture(config *AppConfig) error {
+    // Format current time
+    now := time.Now()
+    nowStr := now.Format("15:04")
+
     // Generate an image of CyberInu with time on glasses
-    image := makeImage()
+    image, err := makeImage(nowStr)
+    if err != nil {
+        return err
+    }
 
     // Encode the image to a PNG
     buffer := bytes.NewBuffer(make([]byte, 0))
-    err := png.Encode(buffer, image)
+    err = png.Encode(buffer, image)
     if err != nil {
-        panic(err)
-    }
-
-    // Retrieve slack token
-    var token string
-    if len(os.Args) >= 2 {
-        // Try to retrieve token from passed arguments first
-        token = os.Args[1]
-    }
-    if token == "" {
-        // If token not available in passed arguments
-        // try to retrieve it from environment variables
-        token = os.Getenv("SLACK_TOKEN")
-    }
-    if token == "" {
-        // Slack token not set. Abort...
-        panic(SlackTokenNotSet{})
+        return err
+    } else {
+        log.Printf("Generated new CyberInu with time: %s.", nowStr)
     }
 
     // Make request to update slack profile picture
-    err = makeRequest(buffer, token)
+    err = makeRequest(buffer, config.SlackToken)
     if err != nil {
-        panic(err)
+        return err
+    } else {
+        log.Printf("Slack profile picture successfully updated.")
     }
+
+    return nil
+}
+
+func parseFlags() (*AppConfig, error) {
+    // Setup flags
+    slackTokenPtr := flag.String("slack-token", "", "Slack token")
+
+    // Parse flags
+    flag.Parse()
+
+    // Create config
+    defaultUpdateInterval, err := time.ParseDuration("1m")
+    if err != nil {
+        return nil, err
+    }
+
+    defaultTimeOffset, err := time.ParseDuration("30s")
+    if err != nil {
+        return nil, err
+    }
+
+    config := AppConfig{
+        *slackTokenPtr,
+        defaultUpdateInterval,
+        defaultTimeOffset,
+        false,
+    }
+
+    // Add missing flags from env
+    if config.SlackToken == "" {
+        config.SlackToken = os.Getenv("SLACK_TOKEN")
+    }
+
+    // Make sure all required flags are there
+    if config.SlackToken == "" {
+        return nil, InvalidFlagValue{
+            Flag: "slack-token",
+            Value: config.SlackToken,
+        }
+    }
+
+    return &config, nil
 }
 
 func main() {
-    aminute, err := time.ParseDuration("1m")
+    // Setup logger
+    // TODO: Add a MultiWriter to both stdout and a file
+    log.SetOutput(os.Stdout)
+
+    // Get flags
+    config, err := parseFlags()
     if err != nil {
-        panic(err)
+        log.Panic(err)
     }
 
+    // Start the main loop
     for {
-        updateSlackPicture()
-        time.Sleep(aminute)
+        err = updateSlackPicture(config)
+        if err != nil {
+            log.Print(err)
+        }
+
+        time.Sleep(config.UpdateInterval)
     }
 }
