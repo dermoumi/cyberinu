@@ -33,6 +33,7 @@ type AppConfig struct {
     LogFile        string
     OutputFile     string
     ModelIndex     int
+    RequestTimeout time.Duration
 }
 
 type InvalidFlagValue struct {
@@ -219,7 +220,7 @@ func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
     return output, nil
 }
 
-func makeRequest(buffer *bytes.Buffer, token string) error {
+func makeRequest(buffer *bytes.Buffer, token string, timeout time.Duration) error {
     body := new(bytes.Buffer)
     writer := multipart.NewWriter(body)
 
@@ -252,7 +253,9 @@ func makeRequest(buffer *bytes.Buffer, token string) error {
     request.Header.Add("Accept", "*/* ")
     request.Header.Add("Content-Type", writerContentType)
 
-    client := &http.Client{}
+    client := &http.Client{
+        Timeout: timeout,
+    }
     resp, err := client.Do(request)
     if err != nil {
         return err
@@ -335,7 +338,7 @@ func updateSlackPicture(config *AppConfig) error {
     }
 
     // Make request to update slack profile picture
-    err = makeRequest(buffer, config.SlackToken)
+    err = makeRequest(buffer, config.SlackToken, config.RequestTimeout)
     if err != nil {
         return err
     } else {
@@ -346,16 +349,10 @@ func updateSlackPicture(config *AppConfig) error {
 }
 
 func parseFlags() (*AppConfig, error) {
-    // Prepare default durations
-    defaultUpdateInterval, err := time.ParseDuration("1m")
-    if err != nil {
-        return nil, err
-    }
-
     // Setup flags
     slackTokenPtr := flag.String("slack-token", "",
         "Slack token")
-    updateIntervalPtr := flag.Duration("update-interval", defaultUpdateInterval,
+    updateIntervalPtr := flag.Duration("update-interval", 1*time.Minute,
         "Update interval")
     secondsOffsetPtr := flag.Int("seconds-offset", 30,
         "Seconds after which we generate picture for the next minute")
@@ -365,6 +362,8 @@ func parseFlags() (*AppConfig, error) {
         "Generate the image and save it as a file instead of uploading to slack")
     modelIndexPtr := flag.Int("model-index", -1,
         "Model index to render")
+    requestTimeoutPtr := flag.Duration("request-timeout", 45*time.Second,
+        "Request timeout")
 
     // Parse flags
     flag.Parse()
@@ -377,6 +376,7 @@ func parseFlags() (*AppConfig, error) {
         *logFilePtr,
         *outputFilePtr,
         *modelIndexPtr,
+        *requestTimeoutPtr,
     }
 
     // Add missing flags from env
