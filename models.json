@@ -1,8 +1,30 @@
 [
     {
-        "filename": "inu.png",
+        "filename": "inu1.png",
         "font": "ocr.ttf",
+        "fontSize": 28,
         "color": "#5dd8ea",
         "transform": [1.0, -0.02, -0.14, 1.0, 301.0, 190.0]
+    },
+    {
+        "filename": "inu2.png",
+        "font": "ocr.ttf",
+        "fontSize": 44,
+        "color": "#5dd8ea",
+        "transform": [0.98, 0.19, -0.15, 0.99, 183.0, 183.0]
+    },
+    {
+        "filename": "inu3.png",
+        "font": "ocr.ttf",
+        "fontSize": 44,
+        "color": "#5dd8ea",
+        "transform": [0.98, 0.19, -0.15, 0.99, 183.0, 183.0]
+    },
+    {
+        "filename": "inu4.png",
+        "font": "ocr.ttf",
+        "fontSize": 44,
+        "color": "#abff48",
+        "transform": [1.0, 0.0, 0.0, 1.0, 157.0, 205.0]
     }
 ]

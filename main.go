@@ -57,6 +57,7 @@ func (err Non200StatusCode) Error() string {
 type Model struct {
     Filename  string
     Font      string
+    FontSize  float64
     Color     color.RGBA
     Transform draw2d.Matrix
 }
@@ -135,6 +136,11 @@ func loadModels(filename string) ([]Model, error) {
             return nil, errInvalidFormat
         }
 
+        fontSize, ok := modelMap["fontSize"].(float64)
+        if !ok {
+            return nil, errInvalidFormat
+        }
+
         colorStr, ok := modelMap["color"].(string)
         if !ok {
             return nil, errInvalidFormat
@@ -160,6 +166,7 @@ func loadModels(filename string) ([]Model, error) {
         models[i] = Model{
             Filename:  filename,
             Font:      font,
+            FontSize:  fontSize,
             Color:     color,
             Transform: draw2d.Matrix(transform),
         }
@@ -197,7 +204,7 @@ func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
 
     // Set some properties
     gc.SetFontData(fontData)
-    gc.SetFontSize(28)
+    gc.SetFontSize(model.FontSize)
 
     // Draw the background image first
     gc.DrawImage(inuImage)
@@ -303,7 +310,7 @@ func updateSlackPicture(config *AppConfig) error {
         model = &models[0]
     } else {
         // If there's more than one model and none was specified, choose randomly
-        index := rand.Intn(modelCount - 1)
+        index := rand.Intn(modelCount)
         model = &models[index]
     }
 
@@ -389,6 +396,9 @@ func parseFlags() (*AppConfig, error) {
 }
 
 func main() {
+    // Seed random number generator
+    rand.Seed(time.Now().UTC().UnixNano())
+
     // Setup logger
     log.SetOutput(os.Stdout)
 
@@ -402,7 +412,7 @@ func main() {
     if config.LogFile != "" {
         logFile, err := os.OpenFile(config.LogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
         if err != nil {
-            log.Printf("Error opening log file '%s' for writing: %s", config.LogFile, err)
+            log.Printf("ERROR: opening log file '%s' for writing. %s", config.LogFile, err)
         }
         defer logFile.Close()
 
@@ -425,7 +435,7 @@ func main() {
     for {
         err = updateSlackPicture(config)
         if err != nil {
-            log.Print(err)
+            log.Printf("ERROR: %s", err)
         }
 
         time.Sleep(config.UpdateInterval)
