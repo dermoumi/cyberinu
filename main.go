@@ -176,28 +176,46 @@ func loadModels(filename string) ([]Model, error) {
     return models, nil
 }
 
+var cachedImages = make(map[string]image.Image)
+var cachedFonts = make(map[string]draw2d.FontData)
+
 func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
-    // Load and register the background image
-    inuImage, err := draw2dimg.LoadFromPngFile(path.Join(ASSETS_DIR, model.Filename))
-    if err != nil {
-        return nil, err
+    // Retrieve background image
+    bgImagePath := path.Join(ASSETS_DIR, model.Filename)
+    bgImage, ok := cachedImages[bgImagePath]
+    if !ok {
+        var err error
+        bgImage, err = draw2dimg.LoadFromPngFile(bgImagePath)
+        if err != nil {
+            return nil, err
+        }
+        cachedImages[bgImagePath] = bgImage
     }
 
-    // Load and register the font
-    fontBytes, err := ioutil.ReadFile(path.Join(ASSETS_DIR, model.Font))
-    if err != nil {
-        return nil, err
+    // Retrieve font data
+    fontPath := path.Join(ASSETS_DIR, model.Font)
+    fontData, ok := cachedFonts[fontPath]
+    if !ok {
+        // Load and register the font
+        fontBytes, err := ioutil.ReadFile(path.Join(ASSETS_DIR, model.Font))
+        if err != nil {
+            return nil, err
+        }
+
+        font, err := truetype.Parse(fontBytes)
+        if err != nil {
+            return nil, err
+        }
+
+        fontData = draw2d.FontData{
+            Name:   model.Font,
+            Family: draw2d.FontFamilySerif,
+            Style:  draw2d.FontStyleNormal,
+        }
+        cachedFonts[fontPath] = fontData
+
+        draw2d.RegisterFont(fontData, font)
     }
-    font, err := truetype.Parse(fontBytes)
-    if err != nil {
-        return nil, err
-    }
-    fontData := draw2d.FontData{
-        Name:   model.Font,
-        Family: draw2d.FontFamilySerif,
-        Style:  draw2d.FontStyleNormal,
-    }
-    draw2d.RegisterFont(fontData, font)
 
     // Initialize the graphic context on an RGBA image
     output := image.NewRGBA(image.Rect(0, 0, 512, 512))
@@ -208,7 +226,7 @@ func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
     gc.SetFontSize(model.FontSize)
 
     // Draw the background image first
-    gc.DrawImage(inuImage)
+    gc.DrawImage(bgImage)
 
     // Write some text
     gc.Save()
