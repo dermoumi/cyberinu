@@ -1,22 +1,23 @@
 package main
 
 import (
-    "os"
-    "fmt"
-    "log"
-    "time"
-    "flag"
-    "path"
     "bytes"
-    "errors"
-    "image"
-    "image/png"
-    "image/color"
-    "math/rand"
-    "io/ioutil"
-    "net/http"
     "encoding/json"
+    "errors"
+    "flag"
+    "fmt"
+    "image"
+    "image/color"
+    "image/png"
+    "io"
+    "io/ioutil"
+    "log"
+    "math/rand"
     "mime/multipart"
+    "net/http"
+    "os"
+    "path"
+    "time"
 
     "github.com/golang/freetype/truetype"
     "github.com/llgcode/draw2d"
@@ -25,13 +26,16 @@ import (
 
 const ASSETS_DIR = "assets"
 
-type AppConfig struct{
-    SlackToken          string
-    UpdateInterval      time.Duration
-    SecondsOffset       int
+type AppConfig struct {
+    SlackToken     string
+    UpdateInterval time.Duration
+    SecondsOffset  int
+    LogFile        string
+    OutputFile     string
+    ModelIndex     int
 }
 
-type InvalidFlagValue struct{
+type InvalidFlagValue struct {
     Flag  string
     Value string
 }
@@ -50,7 +54,7 @@ func (err Non200StatusCode) Error() string {
     return fmt.Sprintf("%v", err)
 }
 
-type Model struct{
+type Model struct {
     Filename  string
     Font      string
     Color     color.RGBA
@@ -59,6 +63,7 @@ type Model struct{
 
 // https://stackoverflow.com/questions/54197913/parse-hex-string-to-image-color
 var errInvalidFormat = errors.New("invalid format")
+
 func parseHexColorFast(s string) (c color.RGBA, err error) {
     c.A = 0xff
 
@@ -94,6 +99,8 @@ func parseHexColorFast(s string) (c color.RGBA, err error) {
     return
 }
 
+var errEmptyModelList = errors.New("Model list is empty")
+
 func loadModels(filename string) ([]Model, error) {
     jsonBytes, err := ioutil.ReadFile(filename)
     if err != nil {
@@ -104,6 +111,11 @@ func loadModels(filename string) ([]Model, error) {
     err = json.Unmarshal(jsonBytes, &loadedData)
     if err != nil {
         return nil, err
+    }
+
+    // Make sure there's at least one model
+    if len(loadedData) == 0 {
+        return nil, errEmptyModelList
     }
 
     models := make([]Model, len(loadedData))
@@ -146,9 +158,9 @@ func loadModels(filename string) ([]Model, error) {
         }
 
         models[i] = Model{
-            Filename: filename,
-            Font: font,
-            Color: color,
+            Filename:  filename,
+            Font:      font,
+            Color:     color,
             Transform: draw2d.Matrix(transform),
         }
     }
@@ -157,7 +169,7 @@ func loadModels(filename string) ([]Model, error) {
 }
 
 func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
-// Load and register the background image
+    // Load and register the background image
     inuImage, err := draw2dimg.LoadFromPngFile(path.Join(ASSETS_DIR, model.Filename))
     if err != nil {
         return nil, err
@@ -173,9 +185,9 @@ func makeImage(timeStr string, model *Model) (*image.RGBA, error) {
         return nil, err
     }
     fontData := draw2d.FontData{
-        Name: "ocr",
+        Name:   model.Font,
         Family: draw2d.FontFamilySerif,
-        Style: draw2d.FontStyleNormal,
+        Style:  draw2d.FontStyleNormal,
     }
     draw2d.RegisterFont(fontData, font)
 
@@ -250,13 +262,15 @@ func makeRequest(buffer *bytes.Buffer, token string) error {
 
         return Non200StatusCode{
             StatusCode: resp.StatusCode,
-            Headers: resp.Header,
-            Body: bodyString,
+            Headers:    resp.Header,
+            Body:       bodyString,
         }
     }
 
     return nil
 }
+
+var errModelIndexOutOfRange = errors.New("Model index out of range")
 
 func updateSlackPicture(config *AppConfig) error {
     // Format current time
@@ -278,12 +292,17 @@ func updateSlackPicture(config *AppConfig) error {
     // Select a random model if modelCount > 1
     var model *Model
     modelCount := len(models)
-    if modelCount == 0 {
-        // TODO: return error
-        return nil
+    if config.ModelIndex >= 0 {
+        // If the model index is already specified, choose it directly
+        if config.ModelIndex >= modelCount {
+            return errModelIndexOutOfRange
+        }
+        model = &models[config.ModelIndex]
     } else if modelCount == 1 {
+        // If there's only one model, choose it directly
         model = &models[0]
     } else {
+        // If there's more than one model and none was specified, choose randomly
         index := rand.Intn(modelCount - 1)
         model = &models[index]
     }
@@ -292,6 +311,11 @@ func updateSlackPicture(config *AppConfig) error {
     image, err := makeImage(nowStr, model)
     if err != nil {
         return err
+    }
+
+    // If output file is defined, save to PNG file and leave
+    if config.OutputFile != "" {
+        return draw2dimg.SaveToPngFile(config.OutputFile, image)
     }
 
     // Encode the image to a PNG
@@ -322,10 +346,18 @@ func parseFlags() (*AppConfig, error) {
     }
 
     // Setup flags
-    slackTokenPtr := flag.String("slack-token", "", "Slack token")
-    updateIntervalPtr := flag.Duration("update-interval", defaultUpdateInterval, "Update interval")
+    slackTokenPtr := flag.String("slack-token", "",
+        "Slack token")
+    updateIntervalPtr := flag.Duration("update-interval", defaultUpdateInterval,
+        "Update interval")
     secondsOffsetPtr := flag.Int("seconds-offset", 30,
-                                 "Seconds after which we generate picture for the next minute")
+        "Seconds after which we generate picture for the next minute")
+    logFilePtr := flag.String("log-file", "",
+        "File to log to")
+    outputFilePtr := flag.String("output", "",
+        "Generate the image and save it as a file instead of uploading to slack")
+    modelIndexPtr := flag.Int("model-index", -1,
+        "Model index to render")
 
     // Parse flags
     flag.Parse()
@@ -335,6 +367,9 @@ func parseFlags() (*AppConfig, error) {
         *slackTokenPtr,
         *updateIntervalPtr,
         *secondsOffsetPtr,
+        *logFilePtr,
+        *outputFilePtr,
+        *modelIndexPtr,
     }
 
     // Add missing flags from env
@@ -343,9 +378,9 @@ func parseFlags() (*AppConfig, error) {
     }
 
     // Make sure all required flags are there
-    if config.SlackToken == "" {
+    if config.OutputFile == "" && config.SlackToken == "" {
         return nil, InvalidFlagValue{
-            Flag: "slack-token",
+            Flag:  "slack-token",
             Value: config.SlackToken,
         }
     }
@@ -355,13 +390,35 @@ func parseFlags() (*AppConfig, error) {
 
 func main() {
     // Setup logger
-    // TODO: Add a MultiWriter to both stdout and a file
     log.SetOutput(os.Stdout)
 
     // Get flags
     config, err := parseFlags()
     if err != nil {
         log.Panic(err)
+    }
+
+    // Setup external log file if specified
+    if config.LogFile != "" {
+        logFile, err := os.OpenFile(config.LogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+        if err != nil {
+            log.Printf("Error opening log file '%s' for writing: %s", config.LogFile, err)
+        }
+        defer logFile.Close()
+
+        log.SetOutput(io.MultiWriter(os.Stdout, logFile))
+        log.Printf("Setup file '%s' as log file", config.LogFile)
+    }
+
+    // If output file is specified, do that and quit
+    if config.OutputFile != "" {
+        err = updateSlackPicture(config)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        log.Printf("File saved to '%s'", config.OutputFile)
+        return
     }
 
     // Start the main loop
