@@ -312,7 +312,7 @@ func updateSlackPicture(config *AppConfig) error {
     nowStr := now.Format("15:04")
 
     // Select a model to use
-    models, err := loadModels("models.json")
+    models, err := loadModels("assets/models.json")
     if err != nil {
         return err
     }
