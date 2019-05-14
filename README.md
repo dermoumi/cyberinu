@@ -7,10 +7,10 @@ with the current time on his eyes and sets it as Slack profile picture.
 Screenshots
 -----------
 
-![Model 0](screenshots/model0.png)
-![Model 1](screenshots/model1.png)
-![Model 2](screenshots/model2.png)
-![Model 3](screenshots/model3.png)
+![Model 0](screenshots/model0.png?raw=true)
+![Model 1](screenshots/model1.png?raw=true)
+![Model 2](screenshots/model2.png?raw=true)
+![Model 3](screenshots/model3.png?raw=true)
 
 Usage
 -----
