@@ -42,5 +42,8 @@ You can then run the container on with:
 
     docker run -d --name cyberinu -e TZ=Europe/Paris -e SLACK_TOKEN=<slack_token> cyberinu:latest
 
-You want to omit the `-e TZ=Europe/Paris` when running on a machine with same timezone as yours,
+The token must be a Slack Legacy Token, and can be created/requested per workspace
+[here](https://api.slack.com/custom-integrations/legacy-tokens)
+
+You may want to omit `-e TZ=Europe/Paris` when running on a machine with same timezone as yours,
 or change it to fit your target timezone ([See list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones))
